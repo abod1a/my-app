@@ -22,19 +22,26 @@ def load_model():
 model = load_model()
 
 # دالة لاستخراج النص
-def extract_text(file):
-    try:
-        if file.name.endswith('.txt'):
-            return file.read().decode("utf-8")
-        elif file.name.endswith('.pdf'):
-            pdf = PyPDF2.PdfReader(file)
-            return "\n".join([page.extract_text() for page in pdf.pages])
-        elif file.name.endswith('.docx'):
-            doc = docx.Document(file)
-            return "\n".join([para.text for para in doc.paragraphs])
-    except Exception as e:
-        return f"Error reading file: {e}"
-    return ""
+def extract_text(uploaded_file):
+    # الحصول على امتداد الملف
+    file_type = uploaded_file.name.split('.')[-1].lower()
+    
+    if file_type == 'pdf':
+        reader = pypdf.PdfReader(uploaded_file)
+        text = ""
+        for page in reader.pages:
+            text += page.extract_text() or ""
+        return text
+    
+    elif file_type == 'docx':
+        doc = docx.Document(uploaded_file)
+        return "\n".join([para.text for para in doc.paragraphs])
+    
+    elif file_type == 'txt':
+        return uploaded_file.getvalue().decode("utf-8")
+    
+    else:
+        return "Unsupported file format"
 
 st.title(" المساعد  الذكي")
 
