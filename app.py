@@ -6,13 +6,13 @@ import numpy as np
 import PyPDF2
 import docx
 
-# --- الإعدادات ---
-# قراءة المفتاح من إعدادات Streamlit (Secrets)
+# --- Setting ---
+# Read key from setting Streamlit (Secrets)
 api_key = st.secrets["GROQ_API_KEY"]
 client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=api_key)
 
 
-# استخدام Cache لتحميل الموديل مرة واحدة فقط (لزيادة السرعة)
+# To convert module one at time to make it more speed we use Cache 
 @st.cache_resource
 def load_model():
     return SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
@@ -45,7 +45,7 @@ def extract_text(uploaded_file):
             return "\n".join(para.text for para in document.paragraphs)
 
         else:
-            # أي امتداد آخر: نحاول قراءته كنص UTF-8
+            # Any foramt read it as .text file format UTF-8
             raw_bytes = uploaded_file.read()
             try:
                 return raw_bytes.decode("utf-8")
@@ -66,7 +66,7 @@ uploaded_file = st.file_uploader(
 )
 
 if uploaded_file:
-    # نعالج الملف ونبني الفهرس مرة واحدة فقط، وليس مع كل إعادة تشغيل للصفحة
+    # Proccsing file one at time not at every rerun page
     file_changed = (
         "file_name" not in st.session_state
         or st.session_state.file_name != uploaded_file.name
@@ -129,6 +129,6 @@ if uploaded_file:
         st.write("### الإجابة:")
         st.write(response.choices[0].message.content)
 else:
-    # تنظيف الحالة عند إزالة الملف
+    # Clean after remove file
     for key in ("file_name", "documents", "index"):
         st.session_state.pop(key, None)
