@@ -28,8 +28,8 @@ client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=api_key)
 MAX_RETRIES = 4
 BASE_DELAY_SECONDS = 2  # سيتضاعف مع كل محاولة (2s, 4s, 8s, 16s)
 
-
-def ask_model_with_retry(messages, model="llama-3.3-70b-versatile"):
+#"llama-3.3-70b-versatile
+def ask_model_with_retry(messages, model="llama-3.3-8b-instant"):
     """
     يرسل الطلب إلى Groq مع إعادة محاولة تلقائية عند تجاوز الحد المسموح
     (RateLimitError) أو مشاكل الاتصال المؤقتة، مع تأخير متزايد بين المحاولات.
