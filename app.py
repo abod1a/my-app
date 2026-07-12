@@ -1,25 +1,100 @@
-
+import time
 import streamlit as st
-from openai import OpenAI
+from openai import (
+    OpenAI,
+    RateLimitError,
+    APIConnectionError,
+    AuthenticationError,
+    APIStatusError,
+)
 from sentence_transformers import SentenceTransformer
 import faiss
 import numpy as np
 import PyPDF2
 import docx
 
-# --- Setting ---
-# Read key from setting Streamlit (Secrets)
+# --- الإعدادات ---
+# قراءة المفتاح من إعدادات Streamlit (Secrets)
+if "GROQ_API_KEY" not in st.secrets:
+    st.error(
+        "⚠️ لم يتم العثور على GROQ_API_KEY في إعدادات Secrets. "
+        "أضفه من Manage app → Settings → Secrets."
+    )
+    st.stop()
+
 api_key = st.secrets["GROQ_API_KEY"]
-client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=api_key,max_retries=3)
+client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=api_key)
+
+MAX_RETRIES = 4
+BASE_DELAY_SECONDS = 2  # سيتضاعف مع كل محاولة (2s, 4s, 8s, 16s)
 
 
-# To convert module one at time to make it more speed we use Cache 
+def ask_model_with_retry(messages, model="llama-3.3-70b-versatile"):
+    """
+    يرسل الطلب إلى Groq مع إعادة محاولة تلقائية عند تجاوز الحد المسموح
+    (RateLimitError) أو مشاكل الاتصال المؤقتة، مع تأخير متزايد بين المحاولات.
+    """
+    last_error = None
+
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            return client.chat.completions.create(model=model, messages=messages)
+
+        except RateLimitError as e:
+            last_error = e
+            wait_time = BASE_DELAY_SECONDS * (2 ** (attempt - 1))
+            if attempt < MAX_RETRIES:
+                st.info(
+                    f"⏳ تم تجاوز الحد المسموح من الطلبات، إعادة المحاولة "
+                    f"({attempt}/{MAX_RETRIES}) بعد {wait_time} ثانية..."
+                )
+                time.sleep(wait_time)
+            else:
+                break
+
+        except APIConnectionError as e:
+            last_error = e
+            wait_time = BASE_DELAY_SECONDS * (2 ** (attempt - 1))
+            if attempt < MAX_RETRIES:
+                st.info(f"⏳ مشكلة اتصال مؤقتة، إعادة المحاولة ({attempt}/{MAX_RETRIES})...")
+                time.sleep(wait_time)
+            else:
+                break
+
+        except AuthenticationError as e:
+            # لا فائدة من إعادة المحاولة إذا كان المفتاح خاطئاً
+            st.error("🔑 مفتاح API غير صحيح أو منتهي الصلاحية. تحقق من GROQ_API_KEY في Secrets.")
+            st.stop()
+
+        except APIStatusError as e:
+            last_error = e
+            break  # أخطاء أخرى من السيرفر (400/500...) لا نعيد المحاولة تلقائياً
+
+    # إذا وصلنا هنا فكل المحاولات فشلت
+    if isinstance(last_error, RateLimitError):
+        st.error(
+            "🚦 الخدمة مزدحمة حالياً (تم تجاوز الحد المسموح من الطلبات في Groq). "
+            "الرجاء الانتظار دقيقة ثم المحاولة مرة أخرى."
+        )
+    elif isinstance(last_error, APIConnectionError):
+        st.error("🌐 تعذر الاتصال بخادم Groq. تحقق من اتصال الإنترنت وحاول مجدداً.")
+    else:
+        st.error(f"❌ حدث خطأ غير متوقع أثناء الاتصال بالنموذج: {last_error}")
+
+    return None
+
+
+# استخدام Cache لتحميل الموديل مرة واحدة فقط (لزيادة السرعة)
 @st.cache_resource
 def load_model():
     return SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
 
 
-model = load_model()
+try:
+    model = load_model()
+except Exception as e:
+    st.error(f"❌ تعذر تحميل نموذج التضمين (embedding model): {e}")
+    st.stop()
 
 
 def extract_text(uploaded_file):
@@ -46,7 +121,7 @@ def extract_text(uploaded_file):
             return "\n".join(para.text for para in document.paragraphs)
 
         else:
-            # Any foramt read it as .text file format UTF-8
+            # أي امتداد آخر: نحاول قراءته كنص UTF-8
             raw_bytes = uploaded_file.read()
             try:
                 return raw_bytes.decode("utf-8")
@@ -67,7 +142,7 @@ uploaded_file = st.file_uploader(
 )
 
 if uploaded_file:
-    # Proccsing file one at time not at every rerun page
+    # نعالج الملف ونبني الفهرس مرة واحدة فقط، وليس مع كل إعادة تشغيل للصفحة
     file_changed = (
         "file_name" not in st.session_state
         or st.session_state.file_name != uploaded_file.name
@@ -85,9 +160,13 @@ if uploaded_file:
                 )
                 st.stop()
 
-            embeddings = model.encode(documents).astype("float32")
-            index = faiss.IndexFlatL2(embeddings.shape[1])
-            index.add(embeddings)
+            try:
+                embeddings = model.encode(documents).astype("float32")
+                index = faiss.IndexFlatL2(embeddings.shape[1])
+                index.add(embeddings)
+            except Exception as e:
+                st.error(f"❌ حدث خطأ أثناء بناء الفهرس: {e}")
+                st.stop()
 
             st.session_state.file_name = uploaded_file.name
             st.session_state.documents = documents
@@ -101,34 +180,42 @@ if uploaded_file:
     question = st.text_input("اطرح سؤالك حول الملف:")
 
     if question:
+        question = question.strip()
+
+    if question:
         with st.spinner("جاري البحث والإجابة..."):
             documents = st.session_state.documents
             index = st.session_state.index
 
-            k = min(3, len(documents))
-            q_embedding = model.encode([question]).astype("float32")
-            distances, indices = index.search(q_embedding, k)
-            context = "\n---\n".join(documents[i] for i in indices[0])
+            try:
+                k = min(3, len(documents))
+                q_embedding = model.encode([question]).astype("float32")
+                distances, indices = index.search(q_embedding, k)
+                context = "\n---\n".join(documents[i] for i in indices[0])
+            except Exception as e:
+                st.error(f"❌ حدث خطأ أثناء البحث في الملف: {e}")
+                st.stop()
 
-            response = client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            "أنت مساعد . أجب بناءً على السياق المقدم فقط. "
-                            "إذا لم تجد الإجابة، قل لا أعرف."
-                        ),
-                    },
-                    {
-                        "role": "user",
-                        "content": f"السياق:\n{context}\n\nالسؤال: {question}",
-                    },
-                ],
-            )
-        st.write("### الإجابة:")
-        st.write(response.choices[0].message.content)
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "أنت مساعد قانوني خبير. أجب بناءً على السياق المقدم فقط. "
+                        "إذا لم تجد الإجابة، قل لا أعرف."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": f"السياق:\n{context}\n\nالسؤال: {question}",
+                },
+            ]
+
+            response = ask_model_with_retry(messages)
+
+        if response is not None:
+            st.write("### الإجابة:")
+            st.write(response.choices[0].message.content)
 else:
-    # Clean after remove file
+    # تنظيف الحالة عند إزالة الملف
     for key in ("file_name", "documents", "index"):
         st.session_state.pop(key, None)
