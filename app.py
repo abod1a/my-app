@@ -10,7 +10,7 @@ import docx
 # --- الإعدادات ---
 # الطريقة الصحيحة: قراءة المفتاح من إعدادات Streamlit
 #update deplyment
-api_key = st.secrets["gsk_AQJscaH31naYkJWCXdqjWGdyb3FYTsKAlt4WfCy7ifiI4G4j3CtlY"]
+api_key = st.secrets[GROQ_API_KEY]
 client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=api_key)
 
 
