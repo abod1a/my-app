@@ -3,5 +3,4 @@ openai
 sentence-transformers
 faiss-cpu
 pypdf2
-python-docx 
-openai
+python-docx
