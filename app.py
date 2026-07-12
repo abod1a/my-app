@@ -1,3 +1,4 @@
+
 import streamlit as st
 from openai import OpenAI
 from sentence_transformers import SentenceTransformer
@@ -9,7 +10,7 @@ import docx
 # --- Setting ---
 # Read key from setting Streamlit (Secrets)
 api_key = st.secrets["GROQ_API_KEY"]
-client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=api_key)
+client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=api_key,max_retries=3)
 
 
 # To convert module one at time to make it more speed we use Cache 
@@ -125,7 +126,6 @@ if uploaded_file:
                     },
                 ],
             )
-
         st.write("### الإجابة:")
         st.write(response.choices[0].message.content)
 else:
