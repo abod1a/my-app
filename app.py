@@ -35,8 +35,8 @@ BASE_DELAY_SECONDS = 2  # سيتضاعف مع كل محاولة (2s, 4s, 8s, 16s
 # عبارة موحّدة نستخدمها لاكتشاف حالة "لا أعرف" في رد النموذج
 NOT_FOUND_MARKER = "لا أعرف"
 
-
-def ask_model_with_retry(messages, model="llama-3.3-70b-versatile"):
+#model="llama-3.3-70b-versatile"
+def ask_model_with_retry(messages,model="llama-3.1-8b-instant"):
     """
     يرسل الطلب إلى Groq مع إعادة محاولة تلقائية عند تجاوز الحد المسموح
     (RateLimitError) أو مشاكل الاتصال المؤقتة، مع تأخير متزايد بين المحاولات.
