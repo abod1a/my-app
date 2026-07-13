@@ -11,6 +11,7 @@ from openai import (
 )
 
 from sentence_transformers import SentenceTransformer
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 import faiss
 import numpy as np
 import PyPDF2
@@ -34,6 +35,14 @@ BASE_DELAY_SECONDS = 2  # سيتضاعف مع كل محاولة (2s, 4s, 8s, 16s
 
 # عبارة موحّدة نستخدمها لاكتشاف حالة "لا أعرف" في رد النموذج
 NOT_FOUND_MARKER = "لا أعرف"
+
+# مقسّم النصوص: يقسم المستند إلى قطع بحجم مناسب مع تداخل بينها
+# للحفاظ على استمرارية السياق بدل التقسيم الساذج على الفقرات الفارغة فقط
+text_splitter = RecursiveCharacterTextSplitter(
+    chunk_size=1000,    # حجم القطعة الواحدة
+    chunk_overlap=200,  # تداخل لضمان استمرارية السياق
+    separators=["\n\n", "\n", " ", ""],
+)
 
 
 def ask_model_with_retry(messages, model="llama-3.3-70b-versatile"):
@@ -189,7 +198,7 @@ if uploaded_file:
     if file_changed:
         with st.spinner("جاري تحليل الملف وبناء الفهرس..."):
             text = extract_text(uploaded_file)
-            documents = [p.strip() for p in text.split("\n\n") if p.strip()]
+            documents = [chunk.strip() for chunk in text_splitter.split_text(text) if chunk.strip()]
 
             if not documents:
                 st.error(
@@ -229,7 +238,11 @@ if uploaded_file:
                 k = min(3, len(documents))
                 q_embedding = model.encode([question]).astype("float32")
                 distances, indices = index.search(q_embedding, k)
-                context = "\n---\n".join(documents[i] for i in indices[0])
+
+                # تخزين القطع المسترجعة للإشارة إليها لاحقاً كمصادر
+                st.session_state.retrieved_docs = [documents[i] for i in indices[0]]
+
+                context = "\n---\n".join(st.session_state.retrieved_docs)
             except Exception as e:
                 st.error(f"❌ حدث خطأ أثناء البحث في الملف: {e}")
                 st.stop()
@@ -274,7 +287,12 @@ if uploaded_file:
                     )
             else:
                 st.write(answer)
+
+                # عرض المصادر التي تم الاعتماد عليها في بناء الإجابة
+                with st.expander("🔍 عرض النصوص التي تم الاعتماد عليها (المصادر)"):
+                    for i, doc in enumerate(st.session_state.retrieved_docs):
+                        st.write(f"**المصدر {i+1}:** {doc[:200]}...")
 else:
     # تنظيف الحالة عند إزالة الملف
-    for key in ("file_name", "documents", "index"):
+    for key in ("file_name", "documents", "index", "retrieved_docs"):
         st.session_state.pop(key, None)
