@@ -1,5 +1,7 @@
 import time
+
 import streamlit as st
+
 from openai import (
     OpenAI,
     RateLimitError,
@@ -7,11 +9,13 @@ from openai import (
     AuthenticationError,
     APIStatusError,
 )
+
 from sentence_transformers import SentenceTransformer
 import faiss
 import numpy as np
 import PyPDF2
 import docx
+
 
 # --- الإعدادات ---
 # قراءة المفتاح من إعدادات Streamlit (Secrets)
@@ -28,7 +32,10 @@ client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=api_key)
 MAX_RETRIES = 4
 BASE_DELAY_SECONDS = 2  # سيتضاعف مع كل محاولة (2s, 4s, 8s, 16s)
 
-#"llama-3.1-8b-instant
+# عبارة موحّدة نستخدمها لاكتشاف حالة "لا أعرف" في رد النموذج
+NOT_FOUND_MARKER = "لا أعرف"
+
+
 def ask_model_with_retry(messages, model="llama-3.3-70b-versatile"):
     """
     يرسل الطلب إلى Groq مع إعادة محاولة تلقائية عند تجاوز الحد المسموح
@@ -82,6 +89,37 @@ def ask_model_with_retry(messages, model="llama-3.3-70b-versatile"):
         st.error(f"❌ حدث خطأ غير متوقع أثناء الاتصال بالنموذج: {last_error}")
 
     return None
+
+
+def suggest_needed_document(question, model="llama-3.3-70b-versatile"):
+    """
+    عند عدم وجود الإجابة في الملف الحالي، نطلب من النموذج أن يفهم موضوع
+    السؤال ويقترح للمستخدم نوع/محتوى الملف الذي يجب رفعه للحصول على الإجابة.
+    """
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "أنت مساعد يحلل أسئلة المستخدمين ليحدد أي نوع من المستندات "
+                "قد يحتوي على إجابة لهذا السؤال. لا تجب على السؤال نفسه إطلاقاً، "
+                "فقط صف بإيجاز (سطر أو سطرين، بالعربية) نوع أو محتوى الملف الذي "
+                "من المفترض أن يرفعه المستخدم ليجد فيه إجابة سؤاله. "
+                "مثال أسلوب الرد: 'مستند يحتوي على معلومات حول [الموضوع]، "
+                "مثل [أمثلة على نوع الملف: عقد، تقرير مالي، سياسة داخلية...]'."
+            ),
+        },
+        {
+            "role": "user",
+            "content": f"سؤال المستخدم: {question}",
+        },
+    ]
+
+    try:
+        response = client.chat.completions.create(model=model, messages=messages)
+        return response.choices[0].message.content.strip()
+    except Exception:
+        # إذا فشل هذا الاستدعاء الإضافي، لا نريد كسر تجربة المستخدم بسبب ميزة ثانوية
+        return None
 
 
 # استخدام Cache لتحميل الموديل مرة واحدة فقط (لزيادة السرعة)
@@ -201,7 +239,8 @@ if uploaded_file:
                     "role": "system",
                     "content": (
                         "أنت مساعد قانوني خبير. أجب بناءً على السياق المقدم فقط. "
-                        "إذا لم تجد الإجابة، قل لا أعرف."
+                        f"إذا لم تجد الإجابة في السياق، اكتب حرفياً '{NOT_FOUND_MARKER}' "
+                        "في بداية ردك ولا تحاول التخمين أو الإجابة من معلوماتك العامة."
                     ),
                 },
                 {
@@ -213,8 +252,28 @@ if uploaded_file:
             response = ask_model_with_retry(messages)
 
         if response is not None:
+            answer = response.choices[0].message.content
+
             st.write("### الإجابة:")
-            st.write(response.choices[0].message.content)
+
+            if NOT_FOUND_MARKER in answer:
+                st.write("🤔 لا أعرف الإجابة بناءً على الملف المرفوع حالياً.")
+
+                with st.spinner("جاري تحديد نوع الملف الذي قد يحتوي على الإجابة..."):
+                    suggestion = suggest_needed_document(question)
+
+                if suggestion:
+                    st.info(
+                        "📄 لمساعدتك في العثور على الإجابة، يبدو أنك بحاجة لرفع:\n\n"
+                        f"{suggestion}"
+                    )
+                else:
+                    st.info(
+                        "📄 حاول رفع ملف آخر يحتوي على معلومات أقرب لموضوع سؤالك، "
+                        "ثم أعد طرح السؤال."
+                    )
+            else:
+                st.write(answer)
 else:
     # تنظيف الحالة عند إزالة الملف
     for key in ("file_name", "documents", "index"):
