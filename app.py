@@ -257,7 +257,7 @@ if uploaded_file:
             st.write("### الإجابة:")
 
             if NOT_FOUND_MARKER in answer:
-                st.write("🤔 لا أعرف الإجابة بناءً على الملف المرفوع حالياً.")
+                st.write(" لا أعرف الإجابة بناءً على الملف المرفوع حالياً.")
 
                 with st.spinner("جاري تحديد نوع الملف الذي قد يحتوي على الإجابة..."):
                     suggestion = suggest_needed_document(question)
