@@ -35,8 +35,8 @@ BASE_DELAY_SECONDS = 2  # سيتضاعف مع كل محاولة (2s, 4s, 8s, 16s
 # عبارة موحّدة نستخدمها لاكتشاف حالة "لا أعرف" في رد النموذج
 NOT_FOUND_MARKER = "لا أعرف"
 
-#model="llama-3.3-70b-versatile"
-def ask_model_with_retry(messages,model="llama-3.1-8b-instant"):
+
+def ask_model_with_retry(messages, model="llama-3.3-70b-versatile"):
     """
     يرسل الطلب إلى Groq مع إعادة محاولة تلقائية عند تجاوز الحد المسموح
     (RateLimitError) أو مشاكل الاتصال المؤقتة، مع تأخير متزايد بين المحاولات.
@@ -257,7 +257,7 @@ if uploaded_file:
             st.write("### الإجابة:")
 
             if NOT_FOUND_MARKER in answer:
-                st.write(" لا أعرف الإجابة بناءً على الملف المرفوع حالياً.")
+                st.write("🤔 لا أعرف الإجابة بناءً على الملف المرفوع حالياً.")
 
                 with st.spinner("جاري تحديد نوع الملف الذي قد يحتوي على الإجابة..."):
                     suggestion = suggest_needed_document(question)
