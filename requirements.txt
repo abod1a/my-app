@@ -2,7 +2,9 @@
 torch==2.13.0+cpu
 streamlit
 openai>=1.0.0
-sentence-transformers
+sentence-transformers>=3.0.0
+huggingface_hub>=0.24.0
+numpy<2.0
 faiss-cpu
 pypdf2
 python-docx
