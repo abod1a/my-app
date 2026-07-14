@@ -18,8 +18,8 @@ import PyPDF2
 import docx
 
 
-# --- الإعدادات ---
-# قراءة المفتاح من إعدادات Streamlit (Secrets)
+# --- Settings ---
+# Read the API key from Streamlit Secrets
 if "GROQ_API_KEY" not in st.secrets:
     st.error(
         "⚠️ لم يتم العثور على GROQ_API_KEY في إعدادات Secrets. "
@@ -31,24 +31,24 @@ api_key = st.secrets["GROQ_API_KEY"]
 client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=api_key)
 
 MAX_RETRIES = 4
-BASE_DELAY_SECONDS = 2  # سيتضاعف مع كل محاولة (2s, 4s, 8s, 16s)
+BASE_DELAY_SECONDS = 2  # doubles on every retry (2s, 4s, 8s, 16s)
 
-# عبارة موحّدة نستخدمها لاكتشاف حالة "لا أعرف" في رد النموذج
+# Marker string used to detect an "I don't know" answer from the model
 NOT_FOUND_MARKER = "لا أعرف"
 
-# مقسّم النصوص: يقسم المستند إلى قطع بحجم مناسب مع تداخل بينها
-# للحفاظ على استمرارية السياق بدل التقسيم الساذج على الفقرات الفارغة فقط
+# Text splitter: breaks the document into reasonably sized chunks with overlap
+# to preserve context continuity, instead of naive splitting on blank lines only
 text_splitter = RecursiveCharacterTextSplitter(
-    chunk_size=1000,    # حجم القطعة الواحدة
-    chunk_overlap=200,  # تداخل لضمان استمرارية السياق
+    chunk_size=1000,    # size of a single chunk
+    chunk_overlap=200,  # overlap to keep context continuity between chunks
     separators=["\n\n", "\n", " ", ""],
 )
 
 
 def ask_model_with_retry(messages, model="llama-3.3-70b-versatile"):
     """
-    يرسل الطلب إلى Groq مع إعادة محاولة تلقائية عند تجاوز الحد المسموح
-    (RateLimitError) أو مشاكل الاتصال المؤقتة، مع تأخير متزايد بين المحاولات.
+    Sends the request to Groq with automatic retries on rate limiting
+    (RateLimitError) or temporary connection issues, using exponential backoff.
     """
     last_error = None
 
@@ -78,15 +78,15 @@ def ask_model_with_retry(messages, model="llama-3.3-70b-versatile"):
                 break
 
         except AuthenticationError as e:
-            # لا فائدة من إعادة المحاولة إذا كان المفتاح خاطئاً
+            # No point retrying if the key itself is wrong
             st.error("🔑 مفتاح API غير صحيح أو منتهي الصلاحية. تحقق من GROQ_API_KEY في Secrets.")
             st.stop()
 
         except APIStatusError as e:
             last_error = e
-            break  # أخطاء أخرى من السيرفر (400/500...) لا نعيد المحاولة تلقائياً
+            break  # other server errors (400/500...) are not auto-retried
 
-    # إذا وصلنا هنا فكل المحاولات فشلت
+    # If we get here, all attempts failed
     if isinstance(last_error, RateLimitError):
         st.error(
             "🚦 الخدمة مزدحمة حالياً (تم تجاوز الحد المسموح من الطلبات في Groq). "
@@ -102,8 +102,9 @@ def ask_model_with_retry(messages, model="llama-3.3-70b-versatile"):
 
 def suggest_needed_document(question, model="llama-3.3-70b-versatile"):
     """
-    عند عدم وجود الإجابة في الملف الحالي، نطلب من النموذج أن يفهم موضوع
-    السؤال ويقترح للمستخدم نوع/محتوى الملف الذي يجب رفعه للحصول على الإجابة.
+    When no answer is found in the current document, we ask the model to
+    understand the question's topic and suggest what kind of document the
+    user should upload to find the answer.
     """
     messages = [
         {
@@ -111,7 +112,7 @@ def suggest_needed_document(question, model="llama-3.3-70b-versatile"):
             "content": (
                 "أنت مساعد يحلل أسئلة المستخدمين ليحدد أي نوع من المستندات "
                 "قد يحتوي على إجابة لهذا السؤال. لا تجب على السؤال نفسه إطلاقاً، "
-                "فقط صف بإيجاز (سطر أو سطرين، بالعربية اذا كان السؤال بالعربي واذا كان بالانجليزي رد عليه بالانجليزي) نوع أو محتوى الملف الذي "
+                "فقط صف بإيجاز (سطر أو سطرين، بالعربية اذا كان السؤال بالعربي رد بالعربي واذا كان بالانجليزي رد عليه بالانجليزي(الرد يكون باللغة التي طرح بها السؤال)) نوع أو محتوى الملف الذي "
                 "من المفترض أن يرفعه المستخدم ليجد فيه إجابة سؤاله. "
                 "مثال أسلوب الرد: 'مستند يحتوي على معلومات حول [الموضوع]، "
                 "مثل [أمثلة على نوع الملف: عقد، تقرير مالي، سياسة داخلية...]'."
@@ -127,25 +128,34 @@ def suggest_needed_document(question, model="llama-3.3-70b-versatile"):
         response = client.chat.completions.create(model=model, messages=messages)
         return response.choices[0].message.content.strip()
     except Exception:
-        # إذا فشل هذا الاستدعاء الإضافي، لا نريد كسر تجربة المستخدم بسبب ميزة ثانوية
+        # If this secondary call fails, don't break the main experience for it
         return None
 
 
-# استخدام Cache لتحميل الموديل مرة واحدة فقط (لزيادة السرعة)
-
+# Disable HF telemetry, and point the HF cache to a writable local folder.
+# This matters on constrained/shared environments (e.g. Streamlit Cloud)
+# where the default HF cache location may not be writable or may reset.
 os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
+os.environ.setdefault("HF_HOME", os.path.join(os.getcwd(), ".hf_cache"))
 
+# Cache the model with Streamlit so it's loaded only once per session,
+# not on every rerun of the script.
 @st.cache_resource
 def load_model():
-    import time
     start = time.time()
-    st.write("⏳ بدء تحميل الموديل...")
-    m = SentenceTransformer("paraphrase-all-MiniLM-L6-v2")
-    st.write(f"✅ تم التحميل في {time.time() - start:.1f} ثانية")
+    # NOTE: correct model repo name is "all-MiniLM-L6-v2" under the
+    # "sentence-transformers" namespace. It's small (~80MB) and fast,
+    # which makes it a good fit for low-resource machines.
+    m = SentenceTransformer(
+        "sentence-transformers/all-MiniLM-L6-v2",
+        cache_folder=os.environ["HF_HOME"],
+    )
+    st.write(f"✅ تم تحميل نموذج التضمين في {time.time() - start:.1f} ثانية")
     return m
 
 try:
-    model = load_model()
+    with st.spinner("⏳ جاري تحميل نموذج التضمين..."):
+        model = load_model()
 except Exception as e:
     st.error(f"❌ تعذر تحميل نموذج التضمين (embedding model): {e}")
     st.stop()
@@ -153,8 +163,9 @@ except Exception as e:
 
 def extract_text(uploaded_file):
     """
-    تستخرج النص من أي ملف مرفوع وتحوّله إلى نص عادي (str).
-    تدعم PDF و DOCX، وأي ملف نصي آخر (txt, md, csv, json, py...).
+    Extracts plain text (str) from any uploaded file.
+    Supports PDF and DOCX, and falls back to plain-text decoding for any
+    other file type (txt, md, csv, json, py...).
     """
     if uploaded_file is None:
         return ""
@@ -175,7 +186,7 @@ def extract_text(uploaded_file):
             return "\n".join(para.text for para in document.paragraphs)
 
         else:
-            # أي امتداد آخر: نحاول قراءته كنص UTF-8
+            # Any other extension: try decoding as UTF-8 text
             raw_bytes = uploaded_file.read()
             try:
                 return raw_bytes.decode("utf-8")
@@ -196,7 +207,7 @@ uploaded_file = st.file_uploader(
 )
 
 if uploaded_file:
-    # نعالج الملف ونبني الفهرس مرة واحدة فقط، وليس مع كل إعادة تشغيل للصفحة
+    # Only rebuild the index when the file actually changes, not on every rerun
     file_changed = (
         "file_name" not in st.session_state
         or st.session_state.file_name != uploaded_file.name
@@ -246,7 +257,7 @@ if uploaded_file:
                 q_embedding = model.encode([question]).astype("float32")
                 distances, indices = index.search(q_embedding, k)
 
-                # تخزين القطع المسترجعة للإشارة إليها لاحقاً كمصادر
+                # Store retrieved chunks so we can reference them as sources later
                 st.session_state.retrieved_docs = [documents[i] for i in indices[0]]
 
                 context = "\n---\n".join(st.session_state.retrieved_docs)
@@ -295,11 +306,11 @@ if uploaded_file:
             else:
                 st.write(answer)
 
-                # عرض المصادر التي تم الاعتماد عليها في بناء الإجابة
+                # Show the source chunks the answer was based on
                 with st.expander("🔍 عرض النصوص التي تم الاعتماد عليها (المصادر)"):
                     for i, doc in enumerate(st.session_state.retrieved_docs):
                         st.write(f"**المصدر {i+1}:** {doc[:200]}...")
 else:
-    # تنظيف الحالة عند إزالة الملف
+    # Clean up session state when the file is removed
     for key in ("file_name", "documents", "index", "retrieved_docs"):
         st.session_state.pop(key, None)
