@@ -140,7 +140,7 @@ def load_model():
     import time
     start = time.time()
     st.write("⏳ بدء تحميل الموديل...")
-    m = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
+    m = SentenceTransformer("paraphrase-all-MiniLM-L6-v2")
     st.write(f"✅ تم التحميل في {time.time() - start:.1f} ثانية")
     return m
 
