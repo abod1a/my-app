@@ -134,8 +134,15 @@ def suggest_needed_document(question, model="llama-3.3-70b-versatile"):
 # استخدام Cache لتحميل الموديل مرة واحدة فقط (لزيادة السرعة)
 @st.cache_resource
 def load_model():
-    return SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
-
+    # Ensure the token is set in the environment before loading the model
+    if "HF_TOKEN" in st.secrets:
+        os.environ["HF_TOKEN"] = st.secrets["HF_TOKEN"]
+    
+    print("Starting model download/load...") 
+    # This will now use the token if it exists in environment variables
+    model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
+    print("Model loaded successfully!")
+    return model
 
 try:
     model = load_model()
