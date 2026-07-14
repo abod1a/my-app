@@ -112,7 +112,7 @@ def suggest_needed_document(question, model="llama-3.3-70b-versatile"):
             "content": (
                 "أنت مساعد يحلل أسئلة المستخدمين ليحدد أي نوع من المستندات "
                 "قد يحتوي على إجابة لهذا السؤال. لا تجب على السؤال نفسه إطلاقاً، "
-                "فقط صف بإيجاز (سطر أو سطرين، بالعربية اذا كان السؤال بالعربي رد بالعربي واذا كان بالانجليزي رد عليه بالانجليزي(الرد يكون باللغة التي طرح بها السؤال)) نوع أو محتوى الملف الذي "
+                "فقط صف بإيجاز (سطر أو سطرين، بالعربية اذا كان السؤال بالعربي واذا كان بالانجليزي رد عليه بالانجليزي) نوع أو محتوى الملف الذي "
                 "من المفترض أن يرفعه المستخدم ليجد فيه إجابة سؤاله. "
                 "مثال أسلوب الرد: 'مستند يحتوي على معلومات حول [الموضوع]، "
                 "مثل [أمثلة على نوع الملف: عقد، تقرير مالي، سياسة داخلية...]'."
@@ -137,6 +137,13 @@ def suggest_needed_document(question, model="llama-3.3-70b-versatile"):
 # where the default HF cache location may not be writable or may reset.
 os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
 os.environ.setdefault("HF_HOME", os.path.join(os.getcwd(), ".hf_cache"))
+
+# IMPORTANT: Disable the Xet transfer backend (hf-xet package).
+# On restricted networks (e.g. Streamlit Cloud), the Xet CAS/CDN endpoints
+# can be silently blocked while huggingface.co itself is reachable, causing
+# model downloads to hang indefinitely with no error message. Forcing the
+# classic HTTPS/LFS download path avoids this hang entirely.
+os.environ["HF_HUB_DISABLE_XET"] = "1"
 
 # Cache the model with Streamlit so it's loaded only once per session,
 # not on every rerun of the script.
